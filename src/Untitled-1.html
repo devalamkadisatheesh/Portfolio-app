@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Image Matching</title>
+  <script src="https://docs.opencv.org/4.5.4/opencv.js"></script>
+</head>
+<body>
+  <canvas id="canvas" style="display: none;"></canvas>
+  <script>
+    async function matchImages(image1, image2) {
+      const cv = await window.cv;
+      const img1 = cv.imread(image1);
+      const img2 = cv.imread(image2);
+
+      // Convert images to grayscale
+      cv.cvtColor(img1, img1, cv.COLOR_RGBA2GRAY);
+      cv.cvtColor(img2, img2, cv.COLOR_RGBA2GRAY);
+
+      // Detect keypoints and compute descriptors
+      const detector = new cv.SIFTDetector();
+      const keypoints1 = new cv.KeyPoints();
+      const keypoints2 = new cv.KeyPoints();
+      const descriptors1 = new cv.Mat();
+      const descriptors2 = new cv.Mat();
+      detector.detectAndCompute(img1, new cv.Mat(), keypoints1, descriptors1);
+      detector.detectAndCompute(img2, new cv.Mat(), keypoints2, descriptors2);
+
+      // Match keypoints
+      const matcher = new cv.BFMatcher();
+      const matches = new cv.DMatchVectorVector();
+      matcher.knnMatch(descriptors1, descriptors2, matches, 2);
+
+      // Filter matches using ratio test
+      const goodMatches = [];
+      for (let i = 0; i < matches.size(); i++) {
+        const match = matches.get(i);
+        if (match.size() === 2 && match.get(0).distance < 0.75 * match.get(1).distance) {
+          goodMatches.push(match.get(0));
+        }
+      }
+
+      // Calculate transformation matrix using RANSAC
+      const srcPoints = [];
+      const dstPoints = [];
+      for (const match of goodMatches) {
+        const kp1 = keypoints1.get(match.queryIdx);
+        const kp2 = keypoints2.get(match.trainIdx);
+        srcPoints.push(new cv.Point2f(kp1.pt.x, kp1.pt.y));
+        dstPoints.push(new cv.Point2f(kp2.pt.x, kp2.pt.y));
+      }
+      const mask = new cv.Mat();
+      const transform = cv.estimateAffine2D(srcPoints, dstPoints, mask, cv.RANSAC, 5.0);
+
+      // Apply transformation to one image
+      const warped = new cv.Mat();
+      cv.warpAffine(img1, warped, transform, img2.size(), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+
+      // Calculate similarity score
+      const similarity = cv.mean(warped, img2)[0];
+
+      // Clean up
+      img1.delete();
+      img2.delete();
+      keypoints1.delete();
+      keypoints2.delete();
+      descriptors1.delete();
+      descriptors2.delete();
+      matches.delete();
+      mask.delete();
+      transform.delete();
+      warped.delete();
+
+      return similarity;
+    }
+
+    const image1 = 'C:\Users\dell\OneDrive\Pictures\passphoto.jpeg';
+    const image2 = 'C:\Users\dell\OneDrive\Pictures\passphoto.jpeg';
+    matchImages(image1, image2).then(similarity => {
+      console.log('Similarity:', similarity);
+    });
+  </script>
+</body>
+</html>

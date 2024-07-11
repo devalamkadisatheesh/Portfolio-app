@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Image Matching</title>
+  <script src="https://docs.opencv.org/4.5.4/opencv.js"></script>
+</head>
+<body>
+  <canvas id="canvas" style="display: none;"></canvas>
+  <script>
+    async function matchImages(image1, image2) {
+      const cv = await window.cv;
+      const img1 = cv.imread(image1);
+      const img2 = cv.imread(image2);
+
+      // Convert images to grayscale
+      const gray1 = new cv.Mat();
+      const gray2 = new cv.Mat();
+      cv.cvtColor(img1, gray1, cv.COLOR_RGBA2GRAY);
+      cv.cvtColor(img2, gray2, cv.COLOR_RGBA2GRAY);
+
+      // Detect keypoints and compute descriptors
+      const surf = new cv.SURF(400);
+      const keypoints1 = new cv.KeyPoints();
+      const keypoints2 = new cv.KeyPoints();
+      const descriptors1 = new cv.Mat();
+      const descriptors2 = new cv.Mat();
+      surf.detectAndCompute(gray1, new cv.Mat(), keypoints1, descriptors1);
+      surf.detectAndCompute(gray2, new cv.Mat(), keypoints2, descriptors2);
+
+      // Match keypoints
+      const matcher = new cv.DescriptorMatcher('BruteForce');
+      const matches = new cv.DMatchVectorVector();
+      matcher.knnMatch(descriptors1, descriptors2, matches, 2);
+
+      // Filter matches using ratio test
+      const goodMatches = [];
+      for (let i = 0; i < matches.size(); i++) {
+        const match = matches.get(i);
+        if (match.size() === 2 && match.get(0).distance < 0.7 * match.get(1).distance) {
+          goodMatches.push(match.get(0));
+        }
+      }
+
+      // Calculate Homography matrix
+      const srcPoints = [];
+      const dstPoints = [];
+      for (const match of goodMatches) {
+        const kp1 = keypoints1.get(match.queryIdx);
+        const kp2 = keypoints2.get(match.trainIdx);
+        srcPoints.push(new cv.Point2f(kp1.pt.x, kp1.pt.y));
+        dstPoints.push(new cv.Point2f(kp2.pt.x, kp2.pt.y));
+      }
+      const srcMat = cv.matFromArray(srcPoints.length, 1, cv.CV_32FC2, srcPoints.flat());
+      const dstMat = cv.matFromArray(dstPoints.length, 1, cv.CV_32FC2, dstPoints.flat());
+      const homography = cv.findHomography(srcMat, dstMat, cv.RANSAC, 5.0);
+
+      // Apply Homography to one image
+      const warped = new cv.Mat();
+      cv.warpPerspective(img1, warped, homography, img2.size(), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+
+      // Calculate similarity score
+      const similarity = cv.mean(warped, img2)[0];
+
+      // Clean up
+      img1.delete();
+      img2.delete();
+      gray1.delete();
+      gray2.delete();
+      keypoints1.delete();
+      keypoints2.delete();
+      descriptors1.delete();
+      descriptors2.delete();
+      matches.delete();
+      srcMat.delete();
+      dstMat.delete();
+      homography.delete();
+      warped.delete();
+
+      return similarity;
+    }
+
+    const image1 = 'image1.jpg';
+    const image2 = 'image2.jpg';
+    matchImages(image1, image2).then(similarity => {
+      console.log('Similarity:', similarity);
+    });
+  </script>
+</body>
+</html>
